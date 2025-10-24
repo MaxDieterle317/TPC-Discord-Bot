@@ -6,6 +6,8 @@ import os
 # Load .env file
 load_dotenv() 
 TOKEN = os.getenv("DISCORD_TOKEN")
+if TOKEN is None:
+    raise ValueError("Please set the DISCORD_TOKEN environment variable.")
 
 intents = discord.Intents.default()
 intents.message_content = True
