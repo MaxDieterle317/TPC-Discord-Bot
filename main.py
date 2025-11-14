@@ -18,8 +18,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 #when bot is activated, classes are loaded
 @bot.event
 async def setup_hook():
-    await bot.load_extension('ban_clanker_slop')  
+    await bot.load_extension('ban_clanker_slop')
     print("✅ BanFilter cog loaded")
+    await bot.load_extension('role_reaction')
+    print("✅ IntroReactionRole cog loaded")
 
 @bot.event
 async def on_ready():
