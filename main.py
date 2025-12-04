@@ -18,14 +18,21 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 #when bot is activated, classes are loaded
 @bot.event
 async def setup_hook():
-    await bot.load_extension('ban_clanker_slop')
-    print("✅ BanFilter cog loaded")
-    await bot.load_extension('role_reaction')
-    print("✅ IntroReactionRole cog loaded")
+    #await bot.load_extension('ban_clanker_slop')
+    #print("✅ BanFilter cog loaded")
+    #await bot.load_extension('role_reaction')
+    #print("✅ IntroReactionRole cog loaded")
+    await bot.load_extension('user_databse')
+    print("✅ user_databse cog loaded")
+
 
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
+    # --- ADDED: Sync slash commands on startup ---
+    await bot.tree.sync()
+    print("✅ Slash commands synced.")
+    # ---------------------------------------------
 
 # Command to delete a specific number of messages
 @bot.command()
@@ -36,5 +43,3 @@ async def clear(ctx, amount: int):
 
 # Run the bot with the token from .env
 bot.run(TOKEN)
-
-    #TEST BAN AND MANAGE CLASSES NEXT MEETING !!!
