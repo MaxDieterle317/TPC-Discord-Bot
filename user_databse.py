@@ -23,7 +23,8 @@ class UserDatabase(commands.Cog):
                         ID INTEGER PRIMARY KEY,
                         first_joined TEXT,
                         score INTEGER DEFAULT 0,
-                        warnings_activity INTEGER DEFAULT 0
+                        warnings_activity INTEGER DEFAULT 0,
+                        immunity BOOLEAN DEFAULT 0
                     )
                 """)
                 con.commit()
@@ -35,21 +36,24 @@ class UserDatabase(commands.Cog):
 
 
 # --- Helper Method to ensure user is in DB ---
-    def ensure_user_exists(self, user_id: int, joined_at_iso: str):
-        """Inserts a user into the DB if they don't exist."""
+    def check_user_exists(self, user_id: int) -> bool:
+        """Checks if a user exists in the DB without inserting."""
         try:
             with sqlite3.connect(self.db_name) as con:
                 cur = con.cursor()
-                # INSERT OR IGNORE attempts to insert the data. If the ID exists, it ignores the operation.
+                
+                # Use SELECT to check if a row with the given ID exists
                 cur.execute("""
-                    INSERT OR IGNORE INTO users (ID, first_joined)
-                    VALUES (?, ?)
-                """, (user_id, joined_at_iso))
-                con.commit()
-                # Returns True if a new row was inserted, False otherwise.
-                return cur.rowcount > 0
+                    SELECT 1 FROM users WHERE ID = ?
+                """, (user_id,))
+                
+                # fetchone() returns the row (e.g., (1,)) if found, or None if not found.
+                # We return True if a row was fetched (i.e., it's not None).
+                return cur.fetchone() is not None
+                
         except Exception as e:
-            print(f"Error ensuring user {user_id} exists: {e}")
+            # It's good practice to log or handle the error, but the function should still return False
+            print(f"Error checking if user {user_id} exists: {e}")
             return False
 
     # --- New Interface Functions ---
@@ -60,6 +64,19 @@ class UserDatabase(commands.Cog):
             with sqlite3.connect(self.db_name) as con:
                 cur = con.cursor()
                 cur.execute("SELECT score FROM users WHERE ID = ?", (user_id,))
+                result = cur.fetchone()
+                # result will be (score,) or None
+                return result[0] if result else None
+        except Exception as e:
+            print(f"Error getting score for user {user_id}: {e}")
+            return None
+
+    def get_user_warning(self, user_id: int) -> Optional[int]:
+        """Fetches the score for a specific user ID."""
+        try:
+            with sqlite3.connect(self.db_name) as con:
+                cur = con.cursor()
+                cur.execute("SELECT warnings_activity FROM users WHERE ID = ?", (user_id,))
                 result = cur.fetchone()
                 # result will be (score,) or None
                 return result[0] if result else None
@@ -105,21 +122,61 @@ class UserDatabase(commands.Cog):
             print(f"Error updating score for user {user_id}: {e}")
             return None
         
-    def add_user(self, user_id: int) -> Optional[int]:
-        """Adds a new user to the database with default values."""
 
-        try: 
+    def update_user_warnings(self, user_id: int, amount: int) -> Optional[int]:
+        """
+        Increases or decreases a user's warnings by the specified amount.
+        Returns the new warnings count or None on failure.
+        """
+        # 1. Ensure the user is in the database before attempting an update
+        # You'll need to pass the joined_at information from your calling function if you use this. 
+        # For simplicity here, we'll assume the user is managed by the on_message listener.
+        # In a real scenario, you'd call 'ensure_user_exists' with proper data.
+
+        try:
             with sqlite3.connect(self.db_name) as con:
                 cur = con.cursor()
+                
+                # Perform the update
                 cur.execute("""
-                    INSERT INTO users (ID, first_joined)
-                    VALUES (?, ?)
-                """, (user_id, discord.utils.utcnow().isoformat()))
+                    UPDATE users
+                    SET warnings_activity = warnings_activity + ?
+                    WHERE ID = ?
+                """, (amount, user_id))
+                
                 con.commit()
-                return cur.lastrowid
+
+                if cur.rowcount == 0:
+                    # If no row was updated, the user might not exist.
+                    # You might want to handle insertion logic here or ensure it happens elsewhere.
+                    return None
+
+                # 2. Retrieve the new warnings immediately after the update
+                cur.execute("SELECT warnings_activity FROM users WHERE ID = ?", (user_id,))
+                new_warnings = cur.fetchone()
+                
+                return new_warnings[0] if new_warnings else None
+        
         except Exception as e:
-            print(f"Error adding user {user_id}: {e}")
+            print(f"Error updating warnings for user {user_id}: {e}")
             return None
+        
+    def add_new_user(self, user_id: int, joined_at_iso: str):
+        """Inserts a user into the DB if they don't exist."""
+        try:
+            with sqlite3.connect(self.db_name) as con:
+                cur = con.cursor()
+                # INSERT OR IGNORE attempts to insert the data. If the ID exists, it ignores the operation.
+                cur.execute("""
+                    INSERT OR IGNORE INTO users (ID, first_joined)
+                    VALUES (?, ?)
+                """, (user_id, joined_at_iso))
+                con.commit()
+                # Returns True if a new row was inserted, False otherwise.
+                return cur.rowcount > 0
+        except Exception as e:
+            print(f"Error ensuring user {user_id} exists: {e}")
+            return False
 
     # --- Slash Command to export database ---
     @app_commands.command(name="export_db", description="Exports the internal user database file (Admin Only).")
@@ -199,7 +256,7 @@ class UserDatabase(commands.Cog):
     # ----------------------------------------
     
     # --- Listener ---
-
+""""
     @commands.Cog.listener()
     async def on_message(self, message):
         if message.author.bot or message.guild is None:
@@ -216,6 +273,6 @@ class UserDatabase(commands.Cog):
 
         except Exception as e:
             print(f"Database operation error for user {user_id}: {e}")
-
+"""
 async def setup(bot):
     await bot.add_cog(UserDatabase(bot))

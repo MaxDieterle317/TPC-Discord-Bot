@@ -6,35 +6,23 @@ from typing import Union, Optional
 
 class ScoreManager(commands.Cog):
     """
-    Handles score-related slash commands (get_score and set_score).
-    It interacts with the shared server_users.db file.
+    Handles score-related slash commands (get_score and set_score) 
+    by interacting with the UserDatabase cog's interface.
     """
     
     def __init__(self, bot):
         self.bot = bot
-        # Use the same database file name as user_databse.py
+        # Use the same database file name as user_databse.py (for context, though not used directly here)
         self.db_name = "server_users.db"
-        # Since user_databse.py handles the creation, we just need the connection logic.
-
-    # --- Helper Method to ensure user is in DB for new entries ---
-    def ensure_user_exists(self, user_id: int, joined_at_iso: Optional[str] = None):
-        """Inserts a user into the DB if they don't exist, using account creation date as a fallback."""
-        try:
-            with sqlite3.connect(self.db_name) as con:
-                cur = con.cursor()
-                # INSERT OR IGNORE attempts to insert the data. 
-                # If joined_at_iso is not provided (which happens when fetching via user object), 
-                # we can use the current time or a placeholder, but using INSERT OR IGNORE is safest.
-                # Note: We rely on the on_message listener in UserDatabase to populate 'first_joined' accurately.
-                cur.execute("""
-                    INSERT OR IGNORE INTO users (ID, first_joined)
-                    VALUES (?, ?)
-                """, (user_id, joined_at_iso or 'Unknown'))
-                con.commit()
-                return cur.rowcount > 0
-        except Exception as e:
-            print(f"Error ensuring user {user_id} exists in ScoreManager: {e}")
-            return False
+        
+    def get_user_db_cog(self):
+        """Helper to safely retrieve the UserDatabase cog instance."""
+        # The cog name is the class name: UserDatabase
+        user_db = self.bot.get_cog('UserDatabase')
+        if not user_db:
+            # Log an error if the database cog isn't loaded
+            print("❌ Error: UserDatabase cog not found/loaded.")
+        return user_db
 
     # --- Slash Command: /get_score ---
     @app_commands.command(name="get_score", description="Retrieves the current score for a specified user.")
@@ -42,32 +30,34 @@ class ScoreManager(commands.Cog):
     async def get_score_command(self, interaction: discord.Interaction, user: Union[discord.Member, discord.User]):
         await interaction.response.defer(ephemeral=False)
         
+        user_db = self.get_user_db_cog()
+        if not user_db:
+            await interaction.followup.send("❌ Internal Error: Database handler is unavailable. Please ensure the 'user_databse' cog is loaded.", ephemeral=True)
+            return
+
         user_id = user.id
         
-        # Ensure the user exists in the database first, using their creation date as fallback for 'first_joined'
-        self.ensure_user_exists(user_id, user.created_at.isoformat())
+        # 1. Use the UserDatabase's helper to ensure the user exists
+        user_db.ensure_user_exists(user_id, user.created_at.isoformat())
 
         try:
-            with sqlite3.connect(self.db_name) as con:
-                cur = con.cursor()
-                cur.execute("SELECT score FROM users WHERE ID = ?", (user_id,))
-                result = cur.fetchone()
+            # 2. Use the UserDatabase interface method to get the score
+            score = user_db.get_user_score(user_id) 
 
-                if result:
-                    score = result[0]
-                    await interaction.followup.send(
-                        f"🎉 **{user.display_name}**'s current score is **{score}**.", 
-                        ephemeral=False
-                    )
-                else:
-                    # Should be covered by ensure_user_exists, but acts as a safeguard
-                    await interaction.followup.send(
-                        f"⚠️ Could not find a score entry for **{user.display_name}**. Score is likely 0.", 
-                        ephemeral=False
-                    )
+            if score is not None:
+                await interaction.followup.send(
+                    f"🎉 **{user.display_name}**'s current score is **{score}**.", 
+                    ephemeral=False
+                )
+            else:
+                # This should ideally be covered by ensure_user_exists, but handles edge cases
+                await interaction.followup.send(
+                    f"⚠️ Could not find a score entry for **{user.display_name}**. Score is likely 0.", 
+                    ephemeral=False
+                )
 
         except Exception as e:
-            print(f"Error in /get_score for user {user_id}: {e}")
+            print(f"Error in /get_score via UserDatabase interface for user {user_id}: {e}")
             await interaction.followup.send(f"❌ An error occurred while fetching the score: {e}", ephemeral=True)
 
 
@@ -81,37 +71,43 @@ class ScoreManager(commands.Cog):
     async def set_score_command(self, interaction: discord.Interaction, user: Union[discord.Member, discord.User], new_score: int):
         await interaction.response.defer(ephemeral=True)
         
+        user_db = self.get_user_db_cog()
+        if not user_db:
+            await interaction.followup.send("❌ Internal Error: Database handler is unavailable. Please ensure the 'user_databse' cog is loaded.", ephemeral=True)
+            return
+
         user_id = user.id
 
-        # Ensure the user exists in the database first
-        self.ensure_user_exists(user_id, user.created_at.isoformat())
+        # 1. Use the UserDatabase's helper to ensure the user exists
+        user_db.ensure_user_exists(user_id, user.created_at.isoformat())
 
         try:
-            with sqlite3.connect(self.db_name) as con:
-                cur = con.cursor()
+            # 2. Get the current score from the interface
+            current_score = user_db.get_user_score(user_id)
+            if current_score is None:
+                # If the user was just added, score is 0
+                current_score = 0 
                 
-                # Directly set the score
-                cur.execute("""
-                    UPDATE users
-                    SET score = ?
-                    WHERE ID = ?
-                """, (new_score, user_id))
-                
-                con.commit()
+            # 3. Calculate the difference (amount to add)
+            # update_user_score adds the amount, so we calculate the delta: new_score = current_score + amount_to_add
+            amount_to_add = new_score - current_score
 
-                if cur.rowcount > 0:
-                    await interaction.followup.send(
-                        f"✅ Successfully set **{user.display_name}**'s score to **{new_score}**.", 
-                        ephemeral=True
-                    )
-                else:
-                    await interaction.followup.send(
-                        f"❌ Failed to update score for **{user.display_name}**. User may not exist.", 
-                        ephemeral=True
-                    )
+            # 4. Use the UserDatabase interface method to apply the change
+            updated_score = user_db.update_user_score(user_id, amount_to_add)
+            
+            if updated_score is not None and updated_score == new_score:
+                await interaction.followup.send(
+                    f"✅ Successfully set **{user.display_name}**'s score to **{new_score}**.", 
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"❌ Failed to update score for **{user.display_name}**. Database operation failed.", 
+                    ephemeral=True
+                )
         
         except Exception as e:
-            print(f"Error in /set_score for user {user_id}: {e}")
+            print(f"Error in /set_score via UserDatabase interface for user {user_id}: {e}")
             await interaction.followup.send(f"❌ An error occurred while setting the score: {e}", ephemeral=True)
 
     # Error handling for permission checks

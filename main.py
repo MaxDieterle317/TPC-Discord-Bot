@@ -26,6 +26,8 @@ async def setup_hook():
     print("✅ user_databse cog loaded")
     await bot.load_extension('score_manager')
     print("✅ score_manager cog loaded")
+    await bot.load_extension('user_manager')
+    print("✅ user_manager cog loaded")
 
 
 @bot.event
