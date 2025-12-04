@@ -24,6 +24,8 @@ async def setup_hook():
     #print("✅ IntroReactionRole cog loaded")
     await bot.load_extension('user_databse')
     print("✅ user_databse cog loaded")
+    await bot.load_extension('score_manager')
+    print("✅ score_manager cog loaded")
 
 
 @bot.event

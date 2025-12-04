@@ -3,7 +3,7 @@ import discord
 import io # Required to send data as a file without saving it to disk
 from discord import app_commands # Required for Slash Commands
 from discord.ext import commands
-
+from typing import Optional, Union
 
 class UserDatabase(commands.Cog):
     """Handles user data storage and updates using SQLite."""
@@ -30,6 +30,83 @@ class UserDatabase(commands.Cog):
             print(f"Database '{self.db_name}' initialized successfully.")
         except Exception as e:
             print(f"Error initializing database: {e}")
+
+
+
+
+# --- Helper Method to ensure user is in DB ---
+    def ensure_user_exists(self, user_id: int, joined_at_iso: str):
+        """Inserts a user into the DB if they don't exist."""
+        try:
+            with sqlite3.connect(self.db_name) as con:
+                cur = con.cursor()
+                # INSERT OR IGNORE attempts to insert the data. If the ID exists, it ignores the operation.
+                cur.execute("""
+                    INSERT OR IGNORE INTO users (ID, first_joined)
+                    VALUES (?, ?)
+                """, (user_id, joined_at_iso))
+                con.commit()
+                # Returns True if a new row was inserted, False otherwise.
+                return cur.rowcount > 0
+        except Exception as e:
+            print(f"Error ensuring user {user_id} exists: {e}")
+            return False
+
+    # --- New Interface Functions ---
+
+    def get_user_score(self, user_id: int) -> Optional[int]:
+        """Fetches the score for a specific user ID."""
+        try:
+            with sqlite3.connect(self.db_name) as con:
+                cur = con.cursor()
+                cur.execute("SELECT score FROM users WHERE ID = ?", (user_id,))
+                result = cur.fetchone()
+                # result will be (score,) or None
+                return result[0] if result else None
+        except Exception as e:
+            print(f"Error getting score for user {user_id}: {e}")
+            return None
+
+    def update_user_score(self, user_id: int, amount: int) -> Optional[int]:
+        """
+        Increases or decreases a user's score by the specified amount.
+        Returns the new score or None on failure.
+        """
+        # 1. Ensure the user is in the database before attempting an update
+        # You'll need to pass the joined_at information from your calling function if you use this. 
+        # For simplicity here, we'll assume the user is managed by the on_message listener.
+        # In a real scenario, you'd call 'ensure_user_exists' with proper data.
+
+        try:
+            with sqlite3.connect(self.db_name) as con:
+                cur = con.cursor()
+                
+                # Perform the update
+                cur.execute("""
+                    UPDATE users
+                    SET score = score + ?
+                    WHERE ID = ?
+                """, (amount, user_id))
+                
+                con.commit()
+
+                if cur.rowcount == 0:
+                    # If no row was updated, the user might not exist.
+                    # You might want to handle insertion logic here or ensure it happens elsewhere.
+                    return None
+
+                # 2. Retrieve the new score immediately after the update
+                cur.execute("SELECT score FROM users WHERE ID = ?", (user_id,))
+                new_score = cur.fetchone()
+                
+                return new_score[0] if new_score else None
+        
+        except Exception as e:
+            print(f"Error updating score for user {user_id}: {e}")
+            return None
+        
+
+
 
     # --- Slash Command to export database ---
     @app_commands.command(name="export_db", description="Exports the internal user database file (Admin Only).")
