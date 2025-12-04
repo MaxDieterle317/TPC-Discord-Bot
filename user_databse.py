@@ -105,8 +105,21 @@ class UserDatabase(commands.Cog):
             print(f"Error updating score for user {user_id}: {e}")
             return None
         
+    def add_user(self, user_id: int) -> Optional[int]:
+        """Adds a new user to the database with default values."""
 
-
+        try: 
+            with sqlite3.connect(self.db_name) as con:
+                cur = con.cursor()
+                cur.execute("""
+                    INSERT INTO users (ID, first_joined)
+                    VALUES (?, ?)
+                """, (user_id, discord.utils.utcnow().isoformat()))
+                con.commit()
+                return cur.lastrowid
+        except Exception as e:
+            print(f"Error adding user {user_id}: {e}")
+            return None
 
     # --- Slash Command to export database ---
     @app_commands.command(name="export_db", description="Exports the internal user database file (Admin Only).")
@@ -199,19 +212,7 @@ class UserDatabase(commands.Cog):
 
         try:
             with sqlite3.connect(self.db_name) as con:
-                cur = con.cursor()
-                
-                # Using INSERT OR IGNORE is a modern SQL trick to avoid the extra SELECT check
-                # It tries to insert; if ID exists, it does nothing.
-                cur.execute("""
-                    INSERT OR IGNORE INTO users (ID, first_joined)
-                    VALUES (?, ?)
-                """, (user_id, created_at_utc))
-                
-                # If you want to know if it was actually added, you can check cursor.rowcount
-                if cur.rowcount > 0:
-                    print(f"User {user_id} added to database.")
-                    con.commit()
+                self.add_user(user_id)
 
         except Exception as e:
             print(f"Database operation error for user {user_id}: {e}")
